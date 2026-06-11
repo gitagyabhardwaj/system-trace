@@ -27,16 +27,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "var(--bg)",
-        surface: "var(--surface)",
-        "surface-2": "var(--surface-2)",
-        border: "var(--border)",
-        text: "var(--text)",
-        "text-muted": "var(--text-muted)",
-        accent: "var(--accent)",
-        positive: "var(--positive)",
-        warning: "var(--warning)",
-        negative: "var(--negative)",
+        // Use the rgb-triplet CSS vars so Tailwind's `bg-color/<alpha>` opacity
+        // modifier works. The plain hex vars (--accent etc) stay defined for
+        // direct inline use (focus ring, scrollbar, chart series).
+        bg: "rgb(var(--bg-rgb) / <alpha-value>)",
+        surface: "rgb(var(--surface-rgb) / <alpha-value>)",
+        "surface-2": "rgb(var(--surface-2-rgb) / <alpha-value>)",
+        border: "rgb(var(--border-rgb) / <alpha-value>)",
+        text: "rgb(var(--text-rgb) / <alpha-value>)",
+        "text-muted": "rgb(var(--text-muted-rgb) / <alpha-value>)",
+        accent: "rgb(var(--accent-rgb) / <alpha-value>)",
+        positive: "rgb(var(--positive-rgb) / <alpha-value>)",
+        warning: "rgb(var(--warning-rgb) / <alpha-value>)",
+        negative: "rgb(var(--negative-rgb) / <alpha-value>)",
       },
       fontFamily: {
         sans: [

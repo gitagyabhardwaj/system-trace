@@ -14,13 +14,16 @@ type Range = "week" | "month";
 function DayBars({ data }: { data: DayTotal[] }) {
   const max = Math.max(1, ...data.map((d) => d.total_ms));
   return (
-    <div className="flex h-44 items-end gap-1.5">
+    <div className="flex h-44 gap-1.5">
       {data.map((d) => (
         <div key={d.day} className="flex min-w-0 flex-1 flex-col items-center gap-2">
           <div className="flex w-full flex-1 items-end">
             <div
               className="w-full rounded-t bg-accent/80"
-              style={{ height: `${(d.total_ms / max) * 100}%` }}
+              style={{
+                height: `${(d.total_ms / max) * 100}%`,
+                minHeight: d.total_ms > 0 ? "2px" : 0,
+              }}
               title={`${d.day}: ${formatDuration(d.total_ms)}`}
             />
           </div>
