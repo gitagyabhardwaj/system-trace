@@ -9,7 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 Nothing yet. New work in progress lives here until the next tagged release.
 
-## [0.1.0] - Initial open-source release
+## [0.1.0] - 2026-06-11 - Initial open-source release
 
 The first public release of System Trace - a free, local-first, cross-platform
 desktop screen-time tracker built with Tauri 2, Rust, React, and SQLite.
