@@ -1,6 +1,7 @@
 import type { UsageEntry } from "../lib/types";
 import { formatDuration } from "../lib/format";
 import { EmptyState } from "./ui";
+import { AppAvatar } from "./AppAvatar";
 import { AppWindow } from "lucide-react";
 
 /** Horizontal bar list of the most-used apps. */
@@ -22,11 +23,7 @@ export function TopApps({ data }: { data: UsageEntry[] }) {
         <li key={d.app_id}>
           <div className="mb-1 flex items-center justify-between gap-3 text-body">
             <span className="flex min-w-0 items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: d.color ?? "var(--accent)" }}
-                aria-hidden
-              />
+              <AppAvatar name={d.display_name} appKey={d.app_key} size={22} />
               <span className="truncate font-medium text-text">{d.display_name}</span>
               {d.category_name ? (
                 <span className="truncate text-label text-text-muted">

@@ -161,9 +161,15 @@ pub fn remove_exclusion(state: State<AppState>, id: i64) -> R<()> {
 /* ------------------------------- data commands ---------------------------- */
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn export_data(state: State<AppState>, format: ExportFormat, path: String) -> R<ExportResult> {
+pub fn export_data(
+    state: State<AppState>,
+    format: ExportFormat,
+    path: String,
+    from: Option<String>,
+    to: Option<String>,
+) -> R<ExportResult> {
     let conn = lock(&state.db)?;
-    db::export_data(&conn, format, &path)
+    db::export_data(&conn, format, &path, from.as_deref(), to.as_deref())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -176,6 +182,89 @@ pub fn import_data(state: State<AppState>, path: String) -> R<ImportResult> {
 pub fn wipe_all_data(state: State<AppState>) -> R<WipeResult> {
     let conn = lock(&state.db)?;
     db::wipe_all_data(&conn)
+}
+
+/// Copy the live SQLite file to a user-chosen path. We checkpoint the WAL first
+/// so the backup is a complete, self-contained database.
+#[tauri::command(rename_all = "snake_case")]
+pub fn backup_database(state: State<AppState>, path: String) -> R<BackupResult> {
+    {
+        let conn = lock(&state.db)?;
+        // Fold the WAL back into the main file so the copy is consistent.
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+    let bytes = std::fs::copy(&state.db_path, &path).map_err(|e| e.to_string())? as i64;
+    Ok(BackupResult { path, bytes })
+}
+
+/// Restore the database from a backup file. The app must be restarted afterward
+/// because the live connection still points at the old file contents; we report
+/// success and the UI tells the user to relaunch.
+#[tauri::command(rename_all = "snake_case")]
+pub fn restore_database(state: State<AppState>, path: String) -> R<()> {
+    // Basic sanity: the file should be a SQLite database (starts with the magic
+    // header) so we don't clobber the live DB with garbage.
+    let header = {
+        let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        use std::io::Read;
+        let mut buf = [0u8; 16];
+        f.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        buf
+    };
+    if &header[..15] != b"SQLite format 3" {
+        return Err("That file is not a System Trace backup.".into());
+    }
+    // Drop the WAL/SHM siblings so the restored main file is authoritative.
+    let wal = state.db_path.with_extension("sqlite-wal");
+    let shm = state.db_path.with_extension("sqlite-shm");
+    {
+        let conn = lock(&state.db)?;
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+    std::fs::copy(&path, &state.db_path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(wal);
+    let _ = std::fs::remove_file(shm);
+    Ok(())
+}
+
+/* ------------------------------- search ----------------------------------- */
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn search_usage(
+    state: State<AppState>,
+    query: String,
+    from: Option<String>,
+    to: Option<String>,
+) -> R<Vec<SearchHit>> {
+    let conn = lock(&state.db)?;
+    db::search_usage(&conn, &query, from.as_deref(), to.as_deref())
+}
+
+/* ---------------------------- focus sessions ------------------------------ */
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn save_focus_session(
+    state: State<AppState>,
+    start_ms: i64,
+    end_ms: i64,
+    note: String,
+) -> R<()> {
+    let conn = lock(&state.db)?;
+    db::save_focus_session(&conn, start_ms, end_ms, &note)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_focus_sessions(state: State<AppState>, limit: i64) -> R<Vec<FocusSession>> {
+    let conn = lock(&state.db)?;
+    db::list_focus_sessions(&conn, limit)
+}
+
+/* -------------------------------- streaks --------------------------------- */
+
+#[tauri::command]
+pub fn get_goal_streaks(state: State<AppState>) -> R<Vec<GoalStreak>> {
+    let conn = lock(&state.db)?;
+    db::get_goal_streaks(&conn)
 }
 
 /* ----------------------------- collector control -------------------------- */

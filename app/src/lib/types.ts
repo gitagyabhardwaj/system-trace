@@ -144,6 +144,46 @@ export interface DayTotal {
  * Aggregates for an arbitrary inclusive date range (used for Week and Month).
  * `from`/`to` echo the requested local-day bounds.
  */
+/** One aggregated search result: time on an app on a given day. */
+export interface SearchHit {
+  day: DayKey;
+  app_key: string;
+  display_name: string;
+  total_ms: Millis;
+  sample_title: string | null;
+}
+
+/** A completed manual focus session, optionally annotated. */
+export interface FocusSession {
+  id: Id;
+  start_ms: UnixMillis;
+  end_ms: UnixMillis;
+  note: string | null;
+}
+
+/** A consecutive-days streak for one category goal. */
+export interface GoalStreak {
+  category_id: Id;
+  category_name: string;
+  color: string | null;
+  kind: GoalKind;
+  streak_days: number;
+}
+
+/** Result of an in-app database backup. */
+export interface BackupResult {
+  path: string;
+  bytes: number;
+}
+
+/** Result of a check against the GitHub releases API (frontend-only). */
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  update_available: boolean;
+  url: string;
+}
+
 /** Direction of a category goal. */
 export type GoalKind = "under" | "over";
 
@@ -250,6 +290,10 @@ export interface Settings {
   distraction_threshold_mins: number;
   /** Phase 3+: apply a best-effort OS grayscale during quiet hours. */
   bedtime_grayscale_enabled: boolean;
+  /** Accent palette name (signal | slate | solar | cocoa). */
+  palette: string;
+  /** UI language code (e.g. "en"). */
+  language: string;
 }
 
 /** The string keys accepted by `set_setting`. Keep in sync with `Settings`. */
@@ -273,7 +317,9 @@ export type SettingKey =
   | "onboarding_complete"
   | "distraction_nudges_enabled"
   | "distraction_threshold_mins"
-  | "bedtime_grayscale_enabled";
+  | "bedtime_grayscale_enabled"
+  | "palette"
+  | "language";
 
 /** Payload of the `break_due` event. */
 export interface BreakDue {
@@ -459,6 +505,12 @@ export const COMMAND = {
   GET_CATEGORY_GOALS: "get_category_goals",
   SET_CATEGORY_GOAL: "set_category_goal",
   REMOVE_CATEGORY_GOAL: "remove_category_goal",
+  GET_GOAL_STREAKS: "get_goal_streaks",
+  SEARCH_USAGE: "search_usage",
+  SAVE_FOCUS_SESSION: "save_focus_session",
+  LIST_FOCUS_SESSIONS: "list_focus_sessions",
+  BACKUP_DATABASE: "backup_database",
+  RESTORE_DATABASE: "restore_database",
   // Apps / Categories
   GET_APPS: "get_apps",
   SET_APP_CATEGORY: "set_app_category",
@@ -540,6 +592,30 @@ export interface CommandMap {
     args: { category_id: Id };
     result: void;
   };
+  [COMMAND.GET_GOAL_STREAKS]: {
+    args: Record<string, never>;
+    result: GoalStreak[];
+  };
+  [COMMAND.SEARCH_USAGE]: {
+    args: { query: string; from: DayKey | null; to: DayKey | null };
+    result: SearchHit[];
+  };
+  [COMMAND.SAVE_FOCUS_SESSION]: {
+    args: { start_ms: UnixMillis; end_ms: UnixMillis; note: string };
+    result: void;
+  };
+  [COMMAND.LIST_FOCUS_SESSIONS]: {
+    args: { limit: number };
+    result: FocusSession[];
+  };
+  [COMMAND.BACKUP_DATABASE]: {
+    args: { path: string };
+    result: BackupResult;
+  };
+  [COMMAND.RESTORE_DATABASE]: {
+    args: { path: string };
+    result: void;
+  };
   [COMMAND.GET_APPS]: {
     args: Record<string, never>;
     result: AppInfo[];
@@ -581,7 +657,7 @@ export interface CommandMap {
     result: void;
   };
   [COMMAND.EXPORT_DATA]: {
-    args: { format: ExportFormat; path: string };
+    args: { format: ExportFormat; path: string; from: DayKey | null; to: DayKey | null };
     result: ExportResult;
   };
   [COMMAND.IMPORT_DATA]: {

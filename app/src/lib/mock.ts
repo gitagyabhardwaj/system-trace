@@ -164,6 +164,8 @@ export function mockSettings(): Settings {
     distraction_nudges_enabled: false,
     distraction_threshold_mins: 20,
     bedtime_grayscale_enabled: false,
+    palette: "signal",
+    language: "en",
   };
 }
 

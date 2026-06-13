@@ -94,6 +94,12 @@ pub fn migrate(conn: &Connection) -> DbResult<()> {
             daily_ms       INTEGER NOT NULL,
             kind           TEXT NOT NULL CHECK (kind IN ('under','over'))
         );
+        CREATE TABLE IF NOT EXISTS focus_session (
+            id        INTEGER PRIMARY KEY,
+            start_ms  INTEGER NOT NULL,
+            end_ms    INTEGER NOT NULL,
+            note      TEXT
+        );
         "#,
     )
     .map_err(map_err)?;
@@ -779,6 +785,8 @@ pub fn get_settings(conn: &Connection) -> DbResult<Settings> {
         bedtime_grayscale_enabled: get("bedtime_grayscale_enabled")?
             .map(|v| parse_bool(&v))
             .unwrap_or(false),
+        palette: get("palette")?.unwrap_or_else(|| "signal".to_string()),
+        language: get("language")?.unwrap_or_else(|| "en".to_string()),
     })
 }
 
@@ -849,15 +857,26 @@ struct ExportRow {
     end_ms: i64,
 }
 
-fn read_all_rows(conn: &Connection) -> DbResult<Vec<ExportRow>> {
+/// Read raw event rows, optionally bounded to a local-day range [from, to].
+/// When both are `None`, returns everything (the original behavior).
+fn read_rows_in_range(
+    conn: &Connection,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> DbResult<Vec<ExportRow>> {
+    // Translate the inclusive local-day range to a UTC-millis window so the
+    // event.start_ms comparison is correct regardless of timezone.
+    let (lo, hi) = day_range_bounds(from, to)?;
     let mut stmt = conn
         .prepare(
             "SELECT a.app_key, a.display_name, e.title, e.start_ms, e.end_ms
-             FROM event e JOIN app a ON a.id = e.app_id ORDER BY e.start_ms",
+             FROM event e JOIN app a ON a.id = e.app_id
+             WHERE e.start_ms >= ?1 AND e.start_ms < ?2
+             ORDER BY e.start_ms",
         )
         .map_err(map_err)?;
     let rows = stmt
-        .query_map([], |r| {
+        .query_map(params![lo, hi], |r| {
             Ok(ExportRow {
                 app_key: r.get(0)?,
                 display_name: r.get(1)?,
@@ -870,6 +889,197 @@ fn read_all_rows(conn: &Connection) -> DbResult<Vec<ExportRow>> {
     rows.collect::<Result<Vec<_>, _>>().map_err(map_err)
 }
 
+/// Convert an optional inclusive local-day range to a [lo, hi) UTC-millis
+/// window. Missing `from` => epoch; missing `to` => far future.
+fn day_range_bounds(from: Option<&str>, to: Option<&str>) -> DbResult<(i64, i64)> {
+    let lo = match from {
+        Some(d) => day_bounds(parse_day(d)?).0,
+        None => 0,
+    };
+    let hi = match to {
+        Some(d) => day_bounds(parse_day(d)?).1,
+        None => i64::MAX,
+    };
+    Ok((lo, hi))
+}
+
+/* -------------------------------- search ---------------------------------- */
+
+/// Search app usage by name / app_key / title within an optional day range.
+/// Groups by app and day so the UI can show "on this day you spent X on Y".
+pub fn search_usage(
+    conn: &Connection,
+    query: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> DbResult<Vec<SearchHit>> {
+    let (lo, hi) = day_range_bounds(from, to)?;
+    let like = format!("%{}%", query.trim());
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.app_key, a.display_name, e.start_ms, e.duration_ms, e.title
+             FROM event e JOIN app a ON a.id = e.app_id
+             WHERE e.start_ms >= ?1 AND e.start_ms < ?2
+               AND (a.display_name LIKE ?3 OR a.app_key LIKE ?3 OR e.title LIKE ?3)",
+        )
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map(params![lo, hi, like], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(map_err)?;
+
+    // Aggregate (day, app) -> total ms + sample title.
+    let mut acc: BTreeMap<(String, String), (String, i64, Option<String>)> = BTreeMap::new();
+    for row in rows {
+        let (app_key, display_name, start, dur, title) = row.map_err(map_err)?;
+        let day = local_day(start);
+        let entry = acc.entry((day.clone(), app_key.clone())).or_insert((
+            display_name.clone(),
+            0,
+            title.clone(),
+        ));
+        entry.1 += dur;
+        if entry.2.is_none() {
+            entry.2 = title;
+        }
+    }
+
+    let mut hits: Vec<SearchHit> = acc
+        .into_iter()
+        .map(
+            |((day, app_key), (display_name, total_ms, title))| SearchHit {
+                day,
+                app_key,
+                display_name,
+                total_ms,
+                sample_title: title,
+            },
+        )
+        .collect();
+    // Most time first.
+    hits.sort_by_key(|h| std::cmp::Reverse(h.total_ms));
+    hits.truncate(200);
+    Ok(hits)
+}
+
+/* ----------------------------- focus sessions ----------------------------- */
+
+pub fn save_focus_session(
+    conn: &Connection,
+    start_ms: i64,
+    end_ms: i64,
+    note: &str,
+) -> DbResult<()> {
+    let trimmed = note.trim();
+    let note_opt: Option<&str> = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    conn.execute(
+        "INSERT INTO focus_session (start_ms, end_ms, note) VALUES (?1, ?2, ?3)",
+        params![start_ms, end_ms, note_opt],
+    )
+    .map_err(map_err)?;
+    Ok(())
+}
+
+pub fn list_focus_sessions(conn: &Connection, limit: i64) -> DbResult<Vec<FocusSession>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, start_ms, end_ms, note FROM focus_session
+             ORDER BY start_ms DESC LIMIT ?1",
+        )
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map(params![limit], |r| {
+            Ok(FocusSession {
+                id: r.get(0)?,
+                start_ms: r.get(1)?,
+                end_ms: r.get(2)?,
+                note: r.get(3)?,
+            })
+        })
+        .map_err(map_err)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(map_err)
+}
+
+/* -------------------------------- streaks --------------------------------- */
+
+/// For each category goal, count the run of consecutive days (ending today or
+/// yesterday) on which the goal was met. "under" goals are met when the day's
+/// category usage was at or below the target; "over" goals when at or above.
+/// A day with zero tracked data does not count as met for "over" goals and
+/// breaks the streak; for "under" goals an empty day counts as met.
+pub fn get_goal_streaks(conn: &Connection) -> DbResult<Vec<GoalStreak>> {
+    let goals = get_category_goals(conn)?;
+
+    // Don't count days before tracking began - otherwise a brand-new "under"
+    // goal reports a year-long streak from empty history. Bound the walk-back
+    // at the earliest day that has any rolled-up usage.
+    let earliest_day: Option<String> = conn
+        .query_row("SELECT MIN(day) FROM daily_app_usage", [], |r| r.get(0))
+        .map_err(map_err)?;
+
+    let mut out = Vec::with_capacity(goals.len());
+    for g in goals {
+        let mut streak = 0i64;
+        // Walk back up to a year; stop at the first day the goal was not met
+        // or once we pass the earliest tracked day.
+        for offset in 0..366 {
+            let day = (Local::now() - Duration::days(offset))
+                .format("%Y-%m-%d")
+                .to_string();
+            if let Some(ref first) = earliest_day {
+                if day.as_str() < first.as_str() {
+                    break;
+                }
+            } else {
+                // No tracked data at all yet.
+                break;
+            }
+            let used: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(d.total_ms), 0)
+                     FROM daily_app_usage d
+                     JOIN app a ON a.id = d.app_id
+                     WHERE a.category_id = ?1 AND d.day = ?2",
+                    params![g.category_id, day],
+                    |r| r.get(0),
+                )
+                .map_err(map_err)?;
+            let met = match g.kind {
+                GoalKind::Under => used <= g.daily_ms,
+                GoalKind::Over => used >= g.daily_ms,
+            };
+            // Today may be incomplete; for "over" goals don't break the streak
+            // just because today's target is not reached yet.
+            if !met {
+                if offset == 0 && matches!(g.kind, GoalKind::Over) {
+                    continue;
+                }
+                break;
+            }
+            streak += 1;
+        }
+        out.push(GoalStreak {
+            category_id: g.category_id,
+            category_name: g.category_name,
+            color: g.color,
+            kind: g.kind,
+            streak_days: streak,
+        });
+    }
+    Ok(out)
+}
+
 fn csv_escape(s: &str) -> String {
     if s.contains([',', '"', '\n']) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -878,8 +1088,14 @@ fn csv_escape(s: &str) -> String {
     }
 }
 
-pub fn export_data(conn: &Connection, format: ExportFormat, path: &str) -> DbResult<ExportResult> {
-    let rows = read_all_rows(conn)?;
+pub fn export_data(
+    conn: &Connection,
+    format: ExportFormat,
+    path: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> DbResult<ExportResult> {
+    let rows = read_rows_in_range(conn, from, to)?;
     let count = rows.len() as i64;
     let body = match format {
         ExportFormat::Json => serde_json::to_string_pretty(&rows).map_err(map_err)?,
@@ -1243,6 +1459,66 @@ mod tests {
         assert_eq!(ov.longest_session_app.as_deref(), Some("code"));
         // delta is vs the day before this past day (which has no usage).
         assert_eq!(ov.delta_vs_yesterday_ms, 9_000);
+    }
+
+    #[test]
+    fn search_groups_by_app_and_day() {
+        let conn = mem();
+        let now = Local::now().timestamp_millis();
+        insert_events(
+            &conn,
+            &[
+                ev("chrome", now, now + 4_000),
+                ev("chrome", now + 5_000, now + 9_000),
+                ev("code", now, now + 2_000),
+            ],
+        )
+        .unwrap();
+        let hits = search_usage(&conn, "chrome", None, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].display_name, "chrome");
+        // Two chrome events on the same day are summed.
+        assert_eq!(hits[0].total_ms, 8_000);
+
+        // A query that matches nothing returns empty.
+        let none = search_usage(&conn, "zzz-no-match", None, None).unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn focus_sessions_round_trip() {
+        let conn = mem();
+        let now = Local::now().timestamp_millis();
+        save_focus_session(&conn, now, now + 25 * 60_000, "deep work on auth").unwrap();
+        save_focus_session(&conn, now + 1, now + 2, "").unwrap();
+        let list = list_focus_sessions(&conn, 10).unwrap();
+        assert_eq!(list.len(), 2);
+        // Most recent first; the empty note is stored as None.
+        assert_eq!(list[0].note, None);
+        assert_eq!(list[1].note.as_deref(), Some("deep work on auth"));
+    }
+
+    #[test]
+    fn export_respects_date_range() {
+        let conn = mem();
+        let now = Local::now().timestamp_millis();
+        let three_days_ago = now - Duration::days(3).num_milliseconds();
+        insert_events(
+            &conn,
+            &[
+                ev("chrome", now, now + 4_000),
+                ev("code", three_days_ago, three_days_ago + 9_000),
+            ],
+        )
+        .unwrap();
+        // Range covering only today should see one row.
+        let today = today_key();
+        let rows = read_rows_in_range(&conn, Some(&today), Some(&today)).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].app_key, "chrome.exe");
+        // No range = everything.
+        let all = read_rows_in_range(&conn, None, None).unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[test]

@@ -14,10 +14,14 @@ import {
   type BlockRuleInput,
   type BreakDue,
   type DistractionNudge,
+  type BackupResult,
   type Category,
   type CategoryGoal,
   type CategoryGoalInput,
   type CategoryInput,
+  type FocusSession,
+  type GoalStreak,
+  type SearchHit,
   type CollectorState,
   type Exclusion,
   type ExportFormat,
@@ -71,6 +75,44 @@ export function getDayOverview(day: string): Promise<TodayOverview> {
 export function getCategoryGoals(): Promise<CategoryGoal[]> {
   if (!isTauri) return Promise.resolve([]);
   return invoke(COMMAND.GET_CATEGORY_GOALS);
+}
+
+export function getGoalStreaks(): Promise<GoalStreak[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke(COMMAND.GET_GOAL_STREAKS);
+}
+
+export function searchUsage(
+  query: string,
+  from: string | null,
+  to: string | null,
+): Promise<SearchHit[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke(COMMAND.SEARCH_USAGE, { query, from, to });
+}
+
+export function saveFocusSession(
+  start_ms: number,
+  end_ms: number,
+  note: string,
+): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke(COMMAND.SAVE_FOCUS_SESSION, { start_ms, end_ms, note });
+}
+
+export function listFocusSessions(limit: number): Promise<FocusSession[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke(COMMAND.LIST_FOCUS_SESSIONS, { limit });
+}
+
+export function backupDatabase(path: string): Promise<BackupResult> {
+  if (!isTauri) return Promise.resolve({ path, bytes: 0 });
+  return invoke(COMMAND.BACKUP_DATABASE, { path });
+}
+
+export function restoreDatabase(path: string): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke(COMMAND.RESTORE_DATABASE, { path });
 }
 
 export function setCategoryGoal(goal: CategoryGoalInput): Promise<void> {
@@ -160,9 +202,14 @@ export function removeExclusion(id: number): Promise<void> {
 
 /* ------------------------------ data commands ----------------------------- */
 
-export function exportData(format: ExportFormat, path: string): Promise<ExportResult> {
+export function exportData(
+  format: ExportFormat,
+  path: string,
+  from: string | null = null,
+  to: string | null = null,
+): Promise<ExportResult> {
   if (!isTauri) return Promise.resolve({ path, format, rows_written: 0 });
-  return invoke(COMMAND.EXPORT_DATA, { format, path });
+  return invoke(COMMAND.EXPORT_DATA, { format, path, from, to });
 }
 
 export function importData(path: string): Promise<ImportResult> {

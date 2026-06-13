@@ -9,6 +9,74 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 Nothing yet. New work in progress lives here until the next tagged release.
 
+## [0.3.0] - 2026-06-13 - Productivity tools, personalization, and data safety
+
+A broad quality release: search, real insight tools, personalization, data
+safety, and an important CI fix.
+
+### Added
+
+**Search across history**
+- A "Search history" box on the Apps page finds when you used an app across
+  all tracked time (matches app name, key, and window title), grouped by day
+  and sorted by total time. Backed by a new `search_usage` command.
+
+**App icons**
+- Top Apps, the Apps list, and search results now show a per-app icon: a
+  deterministic colored letter-avatar derived from the app key. (Real OS icon
+  extraction is tracked as a follow-up.)
+
+**Productivity Focus Score** (shipped in 0.2.0) now sits alongside new tools:
+
+**Category goal streaks**
+- Each category goal shows a flame badge with its consecutive-days-met streak,
+  counted only from the first day with tracked data. New `get_goal_streaks`.
+
+**Manual focus-session annotations**
+- While a focus session runs, a note field appears; on stop the session is
+  saved with its note. A "Recent sessions" list shows recent sessions with
+  their notes and durations. New `focus_session` table and
+  `save_focus_session` / `list_focus_sessions` commands.
+
+**Date-range export**
+- The data export now takes optional From / To dates; leave them empty to
+  export everything. `export_data` gained range parameters.
+
+**In-app backup and restore**
+- Settings -> Privacy can snapshot the local database to a file and restore it
+  from a backup (with a confirm and a header sanity check). New
+  `backup_database` / `restore_database` commands.
+
+**Global pause / resume hotkey**
+- A system-wide Ctrl + Alt + P shortcut toggles tracking from anywhere, via
+  `tauri-plugin-global-shortcut`. Shown in Settings.
+
+**Custom accent palettes**
+- Settings -> Appearance offers four accent palettes (Signal, Slate, Solar,
+  Cocoa) applied live via CSS-variable overrides and persisted.
+
+**Update check**
+- Settings -> Updates and shortcuts has a "Check for updates" button that
+  reads the public GitHub releases API and reports whether a newer version
+  exists. Nothing is sent; silent auto-install is a tracked follow-up.
+
+**Internationalization scaffolding**
+- A lightweight `t(key, fallback)` helper, an English catalog, and a language
+  picker in Settings. The Sidebar is migrated as a proof; full string
+  migration is a tracked follow-up.
+
+**Accessibility pass**
+- Aria labels on icon-only controls and form inputs, a named main nav
+  landmark, and dialog semantics on the break overlay.
+
+### Fixed
+- **E2E regression**: the 0.2.0 onboarding flow showed the first-run welcome
+  screen in the WebdriverIO test harness (which starts from a fresh database),
+  hiding the dashboard the smoke tests assert on and turning the CI E2E job
+  red. Test mode now marks onboarding complete so the app boots straight to
+  the dashboard. The three real-OS build jobs were always green; this restores
+  the E2E job too.
+
 ## [0.2.0] - 2026-06-13 - Onboarding, history, wellbeing engines, and always-on tracing
 
 The second public release of System Trace. v0.1.0 shipped the tracking

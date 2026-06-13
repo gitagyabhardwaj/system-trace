@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Target, Plus, Trash2 } from "lucide-react";
+import { Target, Plus, Trash2, Flame } from "lucide-react";
 import {
   getCategories,
   getCategoryGoals,
+  getGoalStreaks,
   removeCategoryGoal,
   setCategoryGoal,
 } from "../lib/api";
-import type { Category, CategoryGoal, GoalKind } from "../lib/types";
+import type { Category, CategoryGoal, GoalKind, GoalStreak } from "../lib/types";
 import { Card, CardTitle, EmptyState, cx } from "./ui";
 import { formatDuration } from "../lib/format";
 
@@ -23,13 +24,25 @@ function ratio(g: CategoryGoal): { pct: number; met: boolean; color: string } {
 export function Goals() {
   const [goals, setGoals] = useState<CategoryGoal[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
+  const [streaks, setStreaks] = useState<Record<number, number>>({});
   const [catId, setCatId] = useState<string>("");
   const [mins, setMins] = useState(60);
   const [kind, setKind] = useState<GoalKind>("under");
 
+  function loadStreaks() {
+    getGoalStreaks()
+      .then((rows: GoalStreak[]) => {
+        const map: Record<number, number> = {};
+        for (const r of rows) map[r.category_id] = r.streak_days;
+        setStreaks(map);
+      })
+      .catch(() => {});
+  }
+
   useEffect(() => {
     getCategoryGoals().then(setGoals).catch(() => {});
     getCategories().then(setCats).catch(() => {});
+    loadStreaks();
   }, []);
 
   async function addGoal() {
@@ -40,6 +53,7 @@ export function Goals() {
       kind,
     });
     setGoals(await getCategoryGoals());
+    loadStreaks();
     setCatId("");
   }
 
@@ -119,6 +133,15 @@ export function Goals() {
                       <span className="text-label text-text-muted">
                         {g.kind === "under" ? "stay under" : "reach at least"}
                       </span>
+                      {streaks[g.category_id] > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-label text-warning"
+                          title={`${streaks[g.category_id]}-day streak`}
+                        >
+                          <Flame className="h-3 w-3" aria-hidden />
+                          {streaks[g.category_id]}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="flex items-center gap-3">
                       <span className={cx("font-medium", r.met ? "text-positive" : "text-text")}>

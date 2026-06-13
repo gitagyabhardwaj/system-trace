@@ -1,14 +1,15 @@
 import { LayoutDashboard, AppWindow, BarChart3, Target, HeartPulse, Settings } from "lucide-react";
 import type { Page } from "../lib/nav";
+import { t } from "../lib/i18n";
 import { cx } from "./ui";
 
-const ITEMS: Array<{ id: Page; label: string; icon: typeof LayoutDashboard }> = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "apps", label: "Apps", icon: AppWindow },
-  { id: "reports", label: "Reports", icon: BarChart3 },
-  { id: "focus", label: "Focus", icon: Target },
-  { id: "wellbeing", label: "Wellbeing", icon: HeartPulse },
-  { id: "settings", label: "Settings", icon: Settings },
+const ITEMS: Array<{ id: Page; key: string; label: string; icon: typeof LayoutDashboard }> = [
+  { id: "dashboard", key: "nav.dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "apps", key: "nav.apps", label: "Apps", icon: AppWindow },
+  { id: "reports", key: "nav.reports", label: "Reports", icon: BarChart3 },
+  { id: "focus", key: "nav.focus", label: "Focus", icon: Target },
+  { id: "wellbeing", key: "nav.wellbeing", label: "Wellbeing", icon: HeartPulse },
+  { id: "settings", key: "nav.settings", label: "Settings", icon: Settings },
 ];
 
 /** The "Pulse Scope" brand mark, inline so it is theme-aware (accent var). */
@@ -65,8 +66,8 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
-        {ITEMS.map(({ id, label, icon: Icon }) => {
+      <nav className="flex flex-1 flex-col gap-1 px-3 py-2" aria-label="Main">
+        {ITEMS.map(({ id, key, label, icon: Icon }) => {
           const isActive = active === id;
           return (
             <button
@@ -85,7 +86,7 @@ export function Sidebar({
                 className={cx("h-[18px] w-[18px]", isActive && "text-accent")}
                 aria-hidden
               />
-              {label}
+              {t(key, label)}
             </button>
           );
         })}

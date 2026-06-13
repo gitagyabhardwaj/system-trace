@@ -60,6 +60,37 @@
   color-scheme: dark;
 }
 
+/*
+ * Optional accent palettes. The default "signal" uses the values defined above.
+ * Each palette only overrides the accent token (hex + rgb triplet) for both
+ * light (:root scope) and dark (.dark scope). Applied via a data-palette
+ * attribute on <html>, set by the ThemeProvider from the `palette` setting.
+ */
+:root[data-palette="slate"] {
+  --accent: #5b6b7a;
+  --accent-rgb: 91 107 122;
+}
+.dark[data-palette="slate"] {
+  --accent: #94a3b8;
+  --accent-rgb: 148 163 184;
+}
+:root[data-palette="solar"] {
+  --accent: #d97706;
+  --accent-rgb: 217 119 6;
+}
+.dark[data-palette="solar"] {
+  --accent: #fbbf24;
+  --accent-rgb: 251 191 36;
+}
+:root[data-palette="cocoa"] {
+  --accent: #92633f;
+  --accent-rgb: 146 99 63;
+}
+.dark[data-palette="cocoa"] {
+  --accent: #c79a6f;
+  --accent-rgb: 199 154 111;
+}
+
 html,
 body,
 #root {

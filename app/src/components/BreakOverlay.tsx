@@ -44,7 +44,12 @@ export function BreakOverlay() {
   if (!active) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-bg/95 backdrop-blur">
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-bg/95 backdrop-blur"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Break reminder"
+    >
       <span
         className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/15 text-accent"
         aria-hidden

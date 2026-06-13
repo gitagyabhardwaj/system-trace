@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { ThemePreference } from "../lib/types";
 import { getSettings, setSetting } from "../lib/api";
+import { setLanguage } from "../lib/i18n";
 
 type Resolved = "dark" | "light";
 
@@ -22,10 +23,22 @@ interface ThemeCtx {
   theme: ThemePreference;
   resolved: Resolved;
   setTheme: (t: ThemePreference) => void;
+  palette: string;
+  setPalette: (p: string) => void;
 }
 
 const Ctx = createContext<ThemeCtx | null>(null);
 const STORAGE_KEY = "system-trace.theme";
+const PALETTE_KEY = "system-trace.palette";
+
+/** Apply the accent palette by setting a data attribute on <html>. */
+function applyPalette(name: string) {
+  if (name === "signal") {
+    document.documentElement.removeAttribute("data-palette");
+  } else {
+    document.documentElement.setAttribute("data-palette", name);
+  }
+}
 
 function systemPrefersDark(): boolean {
   return (
@@ -46,11 +59,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return stored ?? "system";
   });
   const [resolved, setResolved] = useState<Resolved>(() => applyTheme(theme));
+  const [palette, setPaletteState] = useState<string>(() => {
+    const stored = localStorage.getItem(PALETTE_KEY);
+    if (stored) applyPalette(stored);
+    return stored ?? "signal";
+  });
 
   // Load the authoritative preference from the core once.
   useEffect(() => {
     getSettings()
-      .then((s) => setThemeState(s.theme))
+      .then((s) => {
+        setThemeState(s.theme);
+        setPaletteState(s.palette);
+        applyPalette(s.palette);
+        setLanguage(s.language);
+      })
       .catch(() => {});
   }, []);
 
@@ -75,7 +98,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setSetting("theme", t).catch(() => {});
   }, []);
 
-  return <Ctx.Provider value={{ theme, resolved, setTheme }}>{children}</Ctx.Provider>;
+  const setPalette = useCallback((p: string) => {
+    setPaletteState(p);
+    applyPalette(p);
+    localStorage.setItem(PALETTE_KEY, p);
+    setSetting("palette", p).catch(() => {});
+  }, []);
+
+  return (
+    <Ctx.Provider value={{ theme, resolved, setTheme, palette, setPalette }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useTheme(): ThemeCtx {

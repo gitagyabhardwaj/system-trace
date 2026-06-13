@@ -1,6 +1,6 @@
 [package]
 name = "system-trace"
-version = "0.2.0"
+version = "0.3.0"
 description = "Privacy-first, local-first, cross-platform screen-time tracker."
 authors = ["ANAND SUNDARAMOORTHY SA"]
 license = "MIT"
@@ -28,6 +28,7 @@ tauri-plugin-dialog = "2.0.0"
 tauri-plugin-single-instance = "2.0.0"
 tauri-plugin-autostart = "2.0.0"
 tauri-plugin-notification = "2.0.0"
+tauri-plugin-global-shortcut = "2.0.0"
 tauri-plugin-wdio = "1.0.0"
 
 serde = { version = "1", features = ["derive"] }

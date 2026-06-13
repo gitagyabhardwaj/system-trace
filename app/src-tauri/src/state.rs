@@ -46,4 +46,6 @@ impl Shared {
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub shared: Arc<Mutex<Shared>>,
+    /// On-disk path of the live SQLite database (for backup / restore).
+    pub db_path: std::path::PathBuf,
 }

@@ -117,6 +117,43 @@ pub struct TodayOverview {
     pub active_app: Option<String>,
 }
 
+/// One aggregated search result: time on an app on a given day.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub day: String,
+    pub app_key: String,
+    pub display_name: String,
+    pub total_ms: i64,
+    /// A representative window title for the match, when title capture is on.
+    pub sample_title: Option<String>,
+}
+
+/// A completed manual focus session, optionally annotated with a note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusSession {
+    pub id: i64,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub note: Option<String>,
+}
+
+/// A consecutive-days streak for one category goal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalStreak {
+    pub category_id: i64,
+    pub category_name: String,
+    pub color: Option<String>,
+    pub kind: GoalKind,
+    pub streak_days: i64,
+}
+
+/// Result of an in-app database backup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupResult {
+    pub path: String,
+    pub bytes: i64,
+}
+
 /// Direction of a category goal.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -257,6 +294,10 @@ pub struct Settings {
     pub distraction_threshold_mins: u32,
     /// Phase 3+: apply a best-effort OS grayscale during quiet hours.
     pub bedtime_grayscale_enabled: bool,
+    /// Accent palette name (signal | slate | solar | cocoa). Default "signal".
+    pub palette: String,
+    /// UI language code (BCP-47-ish, e.g. "en"). Default "en".
+    pub language: String,
 }
 
 /* ------------------------------------------------------------------ *
@@ -463,6 +504,12 @@ pub mod command {
     pub const GET_CATEGORY_GOALS: &str = "get_category_goals";
     pub const SET_CATEGORY_GOAL: &str = "set_category_goal";
     pub const REMOVE_CATEGORY_GOAL: &str = "remove_category_goal";
+    pub const GET_GOAL_STREAKS: &str = "get_goal_streaks";
+    pub const SEARCH_USAGE: &str = "search_usage";
+    pub const SAVE_FOCUS_SESSION: &str = "save_focus_session";
+    pub const LIST_FOCUS_SESSIONS: &str = "list_focus_sessions";
+    pub const BACKUP_DATABASE: &str = "backup_database";
+    pub const RESTORE_DATABASE: &str = "restore_database";
     // Apps / Categories
     pub const GET_APPS: &str = "get_apps";
     pub const SET_APP_CATEGORY: &str = "set_app_category";

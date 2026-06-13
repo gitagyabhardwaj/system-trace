@@ -1,17 +1,31 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Plus, Trash2, Download, Upload, AlertTriangle } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Download,
+  Upload,
+  AlertTriangle,
+  Save,
+  RotateCcw,
+  RefreshCw,
+  Keyboard,
+} from "lucide-react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
   addExclusion,
+  backupDatabase,
   exportData,
   getExclusions,
   getSettings,
   importData,
   isTauri,
   removeExclusion,
+  restoreDatabase,
   setSetting,
   wipeAllData,
 } from "../lib/api";
+import { checkForUpdate } from "../lib/update";
+import { LANGUAGES, setLanguage } from "../lib/i18n";
 import type {
   ExclusionMatchType,
   ExportFormat,
@@ -23,6 +37,13 @@ import type {
 } from "../lib/types";
 import { useTheme } from "../theme/ThemeProvider";
 import { Card, CardTitle, Segmented, Toggle, cx } from "../components/ui";
+
+const PALETTES: { value: string; label: string; swatch: string }[] = [
+  { value: "signal", label: "Signal", swatch: "#2DD4BF" },
+  { value: "slate", label: "Slate", swatch: "#94A3B8" },
+  { value: "solar", label: "Solar", swatch: "#FBBF24" },
+  { value: "cocoa", label: "Cocoa", swatch: "#C79A6F" },
+];
 
 function Row({
   title,
@@ -56,12 +77,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function Settings() {
-  const { setTheme } = useTheme();
+  const { setTheme, palette, setPalette } = useTheme();
   const [s, setS] = useState<SettingsModel | null>(null);
   const [exclusions, setExclusions] = useState<Exclusion[]>([]);
   const [pattern, setPattern] = useState("");
   const [matchType, setMatchType] = useState<ExclusionMatchType>("app");
   const [status, setStatus] = useState<string | null>(null);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
 
   useEffect(() => {
     getSettings().then(setS).catch(() => {});
@@ -116,8 +139,61 @@ export function Settings() {
       if (!picked) return;
       path = picked;
     }
-    const res = await exportData(format, path);
-    flash(`Exported ${res.rows_written} rows to ${res.format.toUpperCase()}.`);
+    const from = exportFrom || null;
+    const to = exportTo || null;
+    const res = await exportData(format, path, from, to);
+    const scope = from || to ? " for the chosen range" : "";
+    flash(`Exported ${res.rows_written} rows to ${res.format.toUpperCase()}${scope}.`);
+  }
+
+  async function doBackup() {
+    if (!isTauri) {
+      flash("Backup is available in the desktop app.");
+      return;
+    }
+    const picked = await save({
+      defaultPath: "system-trace-backup.sqlite",
+      filters: [{ name: "SQLite", extensions: ["sqlite"] }],
+    });
+    if (!picked) return;
+    const res = await backupDatabase(picked);
+    flash(`Backed up ${(res.bytes / 1024).toFixed(0)} KB.`);
+  }
+
+  async function doRestore() {
+    if (!isTauri) {
+      flash("Restore is available in the desktop app.");
+      return;
+    }
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "SQLite", extensions: ["sqlite"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    const ok = window.confirm(
+      "Restore will replace your current data with the backup. Continue?",
+    );
+    if (!ok) return;
+    try {
+      await restoreDatabase(picked);
+      flash("Restored. Please quit and reopen System Trace to load the data.");
+    } catch (e) {
+      flash(String(e));
+    }
+  }
+
+  async function doCheckUpdate() {
+    flash("Checking for updates...");
+    try {
+      const info = await checkForUpdate();
+      if (info.update_available) {
+        flash(`Update available: v${info.latest} (you have v${info.current}).`);
+      } else {
+        flash(`You are on the latest version (v${info.current}).`);
+      }
+    } catch (e) {
+      flash(`Could not check for updates: ${String(e)}`);
+    }
   }
 
   async function doImport() {
@@ -167,6 +243,54 @@ export function Settings() {
                 { value: "dark", label: "Dark" },
               ]}
             />
+          }
+        />
+        <Row
+          title="Accent palette"
+          description="The highlight color used across charts and buttons."
+          control={
+            <div className="flex gap-1.5" role="group" aria-label="Accent palette">
+              {PALETTES.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPalette(p.value)}
+                  aria-pressed={palette === p.value}
+                  title={p.label}
+                  className={cx(
+                    "flex h-8 w-8 items-center justify-center rounded-full border-2",
+                    palette === p.value ? "border-text" : "border-transparent",
+                  )}
+                >
+                  <span
+                    className="h-5 w-5 rounded-full"
+                    style={{ backgroundColor: p.swatch }}
+                    aria-hidden
+                  />
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <Row
+          title="Language"
+          description="More languages are community-contributed."
+          control={
+            <select
+              value={s.language}
+              onChange={(e) => {
+                setStr("language", e.target.value);
+                setLanguage(e.target.value);
+              }}
+              aria-label="Language"
+              className="rounded-md border border-border bg-bg px-2 py-1.5 text-body text-text"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
           }
         />
       </Section>
@@ -307,28 +431,46 @@ export function Settings() {
           ) : null}
         </div>
 
-        <Row
-          title="Export your data"
-          description="A full copy of your events. Stays on your machine."
-          control={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => doExport("csv")}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
-              >
-                <Download className="h-4 w-4" aria-hidden /> CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => doExport("json")}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
-              >
-                <Download className="h-4 w-4" aria-hidden /> JSON
-              </button>
-            </div>
-          }
-        />
+        <div className="px-5 py-3.5">
+          <div className="text-body-strong text-text">Export your data</div>
+          <div className="text-label text-text-muted">
+            A copy of your events. Leave the dates empty to export everything.
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-label text-text-muted">From</span>
+              <input
+                type="date"
+                value={exportFrom}
+                onChange={(e) => setExportFrom(e.target.value)}
+                className="rounded-md border border-border bg-bg px-2 py-1.5 text-body text-text"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-label text-text-muted">To</span>
+              <input
+                type="date"
+                value={exportTo}
+                onChange={(e) => setExportTo(e.target.value)}
+                className="rounded-md border border-border bg-bg px-2 py-1.5 text-body text-text"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => doExport("csv")}
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
+            >
+              <Download className="h-4 w-4" aria-hidden /> CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => doExport("json")}
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
+            >
+              <Download className="h-4 w-4" aria-hidden /> JSON
+            </button>
+          </div>
+        </div>
         <Row
           title="Import data"
           description="Merge a JSON export from another computer."
@@ -339,6 +481,53 @@ export function Settings() {
               className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
             >
               <Upload className="h-4 w-4" aria-hidden /> Import
+            </button>
+          }
+        />
+        <Row
+          title="Backup and restore"
+          description="A full snapshot of your local database. Restore replaces current data."
+          control={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={doBackup}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
+              >
+                <Save className="h-4 w-4" aria-hidden /> Backup
+              </button>
+              <button
+                type="button"
+                onClick={doRestore}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden /> Restore
+              </button>
+            </div>
+          }
+        />
+      </Section>
+
+      <Section title="Updates and shortcuts">
+        <Row
+          title="Pause / resume hotkey"
+          description="Toggle tracking from anywhere with this global shortcut."
+          control={
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-bg px-2.5 py-1.5 text-label text-text-muted">
+              <Keyboard className="h-4 w-4" aria-hidden /> Ctrl + Alt + P
+            </span>
+          }
+        />
+        <Row
+          title="Check for updates"
+          description="Asks GitHub for the latest version. Nothing is sent."
+          control={
+            <button
+              type="button"
+              onClick={doCheckUpdate}
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-body-strong text-text hover:bg-surface-2"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden /> Check
             </button>
           }
         />

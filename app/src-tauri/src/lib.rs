@@ -46,7 +46,8 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     // Only load the WDIO bridge during E2E runs. End-user installs never see it.
     if is_test {
@@ -73,6 +74,14 @@ pub fn run() {
             }
 
             let conn = db::open(&db_path).expect("failed to open database");
+
+            // In E2E test mode the database is fresh each run, which would
+            // otherwise drop the app on the first-run onboarding screen and
+            // hide the dashboard the smoke tests assert on. Mark onboarding
+            // complete so test mode boots straight to the dashboard.
+            if is_test {
+                let _ = db::set_setting(&conn, "onboarding_complete", "true");
+            }
 
             let settings = db::get_settings(&conn).expect("failed to read settings");
             // Trim raw events past the retention window on startup.
@@ -104,10 +113,38 @@ pub fn run() {
             app.manage(AppState {
                 db: db.clone(),
                 shared: shared.clone(),
+                db_path: db_path.clone(),
             });
 
-            // Start the always-on collector.
-            collector::spawn(app.handle().clone(), db, shared);
+            // Register the global pause/resume hotkey (default Ctrl+Alt+P).
+            // Toggling shared.paused is enough: the collector reads it every
+            // loop and the UI catches up on the next usage_tick.
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+                let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP);
+                let shared_for_key = shared.clone();
+                let gs = app.global_shortcut();
+                let reg = gs.on_shortcut(hotkey, move |_app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        if let Ok(mut s) = shared_for_key.lock() {
+                            s.paused = !s.paused;
+                            s.state = if s.paused {
+                                crate::models::CollectorState::Paused
+                            } else {
+                                crate::models::CollectorState::Idle
+                            };
+                            if s.paused {
+                                s.active_app = None;
+                            }
+                        }
+                    }
+                });
+                if let Err(e) = reg {
+                    log::warn!("could not register pause hotkey: {e}");
+                }
+            }
 
             // Hide the window on autostart-from-boot launches (the autostart
             // plugin passes "--minimized") or when the user picked
@@ -165,6 +202,12 @@ pub fn run() {
             commands::get_category_goals,
             commands::set_category_goal,
             commands::remove_category_goal,
+            commands::get_goal_streaks,
+            commands::search_usage,
+            commands::save_focus_session,
+            commands::list_focus_sessions,
+            commands::backup_database,
+            commands::restore_database,
             commands::get_apps,
             commands::set_app_category,
             commands::get_categories,

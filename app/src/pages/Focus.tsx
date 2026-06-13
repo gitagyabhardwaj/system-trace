@@ -17,8 +17,10 @@ import {
   getBlockRules,
   getFocusState,
   getLimits,
+  listFocusSessions,
   removeBlockRule,
   removeLimit,
+  saveFocusSession,
   setBlockRule,
   setLimit,
   startFocusSession,
@@ -28,6 +30,7 @@ import type {
   AppInfo,
   BlockKind,
   BlockRule,
+  FocusSession,
   FocusState,
   LimitStrictness,
   LimitView,
@@ -70,6 +73,9 @@ export function Focus() {
   const [now, setNow] = useState(() => Date.now());
 
   const [sessionMins, setSessionMins] = useState(25);
+  const [sessionNote, setSessionNote] = useState("");
+  const [sessionStart, setSessionStart] = useState<number | null>(null);
+  const [recentSessions, setRecentSessions] = useState<FocusSession[]>([]);
   const [limApp, setLimApp] = useState<string>("");
   const [limMins, setLimMins] = useState(60);
   const [limStrict, setLimStrict] = useState<LimitStrictness>("medium");
@@ -82,6 +88,7 @@ export function Focus() {
     getLimits().then(setLimits).catch(() => {});
     getApps().then(setApps).catch(() => {});
     getBlockRules().then(setRules).catch(() => {});
+    listFocusSessions(8).then(setRecentSessions).catch(() => {});
   }, []);
 
   // Tick the countdown every second while a focus session is running so the
@@ -102,9 +109,22 @@ export function Focus() {
   }, [now, focus?.active, focus?.ends_at_ms]);
 
   async function startSession() {
+    setSessionStart(Date.now());
     setFocus(await startFocusSession(sessionMins));
   }
   async function stopSession() {
+    // Record the completed session with its note before clearing UI state.
+    const start = sessionStart;
+    if (start != null) {
+      try {
+        await saveFocusSession(start, Date.now(), sessionNote);
+        setRecentSessions(await listFocusSessions(8));
+      } catch {
+        // Saving the annotation is best-effort; never block ending the session.
+      }
+    }
+    setSessionStart(null);
+    setSessionNote("");
     setFocus(await stopFocusSession());
   }
 
@@ -258,7 +278,54 @@ export function Focus() {
             </div>
           )}
         </div>
+
+        {focus?.active ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <label htmlFor="session-note" className="text-label text-text-muted">
+              What are you working on? (saved when the session ends)
+            </label>
+            <input
+              id="session-note"
+              value={sessionNote}
+              onChange={(e) => setSessionNote(e.target.value)}
+              placeholder="e.g. deep work on the auth refactor"
+              className="mt-1.5 w-full rounded-md border border-border bg-bg px-3 py-2 text-body text-text placeholder:text-text-muted"
+            />
+          </div>
+        ) : null}
       </Card>
+
+      {/* Recent sessions */}
+      {recentSessions.length > 0 ? (
+        <div className="space-y-2">
+          <CardTitle>Recent sessions</CardTitle>
+          <Card className="p-5">
+            <ul className="divide-y divide-border">
+              {recentSessions.map((sess) => {
+                const mins = Math.max(1, Math.round((sess.end_ms - sess.start_ms) / 60000));
+                return (
+                  <li key={sess.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="min-w-0">
+                      <span className="block truncate text-body-strong text-text">
+                        {sess.note ?? "Focus session"}
+                      </span>
+                      <span className="block text-label text-text-muted">
+                        {new Date(sess.start_ms).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-medium text-text">{mins}m</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </div>
+      ) : null}
 
       {/* Daily limits */}
       <div className="space-y-2">
