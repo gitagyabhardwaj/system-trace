@@ -26,7 +26,12 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 /// Build and run the System Trace desktop app.
 pub fn run() {
-    tauri::Builder::default()
+    // Test mode is opt-in via env var; gates both the WDIO plugin (so
+    // production builds don't load it) and the data-isolation hooks inside
+    // `.setup()`.
+    let is_test = std::env::var("SYSTEM_TRACE_TEST_MODE").is_ok();
+
+    let mut builder = tauri::Builder::default()
         // Single instance must be registered first: a second launch focuses the
         // existing window instead of starting a new collector.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -40,18 +45,21 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_wdio::init())
-        .setup(|app| {
-            // Check for test mode to avoid polluting real user data.
-            let is_test = std::env::var("SYSTEM_TRACE_TEST_MODE").is_ok();
+        .plugin(tauri_plugin_notification::init());
 
+    // Only load the WDIO bridge during E2E runs. End-user installs never see it.
+    if is_test {
+        builder = builder.plugin(tauri_plugin_wdio::init());
+    }
+
+    builder
+        .setup(move |app| {
             // Local database in the OS app-data directory (no cloud).
             let dir = app
                 .path()
                 .app_data_dir()
                 .expect("could not resolve app data dir");
-            
+
             let db_path = if is_test {
                 std::env::temp_dir().join("system-trace-test.sqlite")
             } else {
@@ -79,7 +87,11 @@ pub fn run() {
                 }
             }
 
-            let tracking_paused = if is_test { true } else { settings.tracking_paused };
+            let tracking_paused = if is_test {
+                true
+            } else {
+                settings.tracking_paused
+            };
 
             let shared = Arc::new(Mutex::new(Shared::new(
                 settings.idle_threshold_secs as u64 * 1000,
