@@ -31,39 +31,60 @@ const NONCE_LEN: usize = 24;
 /// no existing data (a fresh install).
 pub fn load_or_create_key(fallback_path: &Path, data_exists: bool) -> Result<[u8; 32], String> {
     match keyring_get() {
-        Ok(Some(k)) => return Ok(k),
-        Ok(None) => {} // genuinely no entry yet
+        // The key is in the OS store - the normal path.
+        Ok(Some(k)) => Ok(k),
+
+        // The store works but holds no entry. This is genuine: either a fresh
+        // install, or an upgrade from a build whose key didn't persist. Either
+        // way the key is gone, so any existing snapshot is unrecoverable - we
+        // mint a fresh (now-persistent) key and let the caller quarantine the
+        // old snapshot and start fresh. Bricking the app would be worse.
+        Ok(None) => {
+            if let Some(k) = read_key_file(fallback_path) {
+                return Ok(k);
+            }
+            Ok(create_and_store(fallback_path))
+        }
+
+        // The store itself errored (locked / temporarily unavailable). Do NOT
+        // mint a new key when encrypted data exists - that could discard
+        // recoverable data once the store comes back. Try the file fallback;
+        // otherwise fail the launch so a retry recovers.
         Err(e) => {
-            if data_exists || fallback_path.exists() {
+            if let Some(k) = read_key_file(fallback_path) {
+                return Ok(k);
+            }
+            if data_exists {
                 return Err(format!(
                     "secure key store is unavailable ({e}); not creating a new key \
-                     because encrypted data already exists. Try launching again."
+                     because encrypted data already exists. Please try launching again."
                 ));
             }
-            // No data yet: a keyring error is non-fatal; fall through to create.
+            Ok(create_and_store(fallback_path))
         }
     }
+}
 
-    if let Ok(bytes) = std::fs::read(fallback_path) {
-        if bytes.len() == 32 {
-            let mut k = [0u8; 32];
-            k.copy_from_slice(&bytes);
-            return Ok(k);
-        }
+fn read_key_file(path: &Path) -> Option<[u8; 32]> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() == 32 {
+        let mut k = [0u8; 32];
+        k.copy_from_slice(&bytes);
+        Some(k)
+    } else {
+        None
     }
+}
 
-    // No key found anywhere. If encrypted data exists, we cannot decrypt it -
-    // surface that rather than silently minting a key that won't work.
-    if data_exists {
-        return Err("encrypted data exists but no decryption key was found".into());
-    }
-
+fn create_and_store(fallback_path: &Path) -> [u8; 32] {
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
+    // Prefer the OS keyring; only fall back to a restricted file if it fails,
+    // so the key still persists across restarts either way.
     if !keyring_set(&key) {
         let _ = write_key_file(fallback_path, &key);
     }
-    Ok(key)
+    key
 }
 
 /// `Ok(Some(key))` = found, `Ok(None)` = no entry yet, `Err` = keyring error

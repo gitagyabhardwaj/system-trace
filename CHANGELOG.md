@@ -9,6 +9,28 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 Nothing yet. New work in progress lives here until the next tagged release.
 
+## [0.4.2] - 2026-06-14 - Critical: the app could not launch after a restart
+
+### Fixed
+
+- **CRITICAL: the app failed to launch after a reboot/restart.** The `keyring`
+  crate (3.x) ships **no credential-store backend by default** - it silently
+  falls back to an **in-memory mock store** that is lost when the process
+  exits. So the database encryption key only ever lived in memory: the app
+  worked while it kept running, but after a restart the key was gone, and the
+  (correct) "don't create a new key when encrypted data exists" safeguard then
+  made startup fail - the window never appeared.
+  - **Fix:** enable the real, persistent OS credential stores
+    (`windows-native` → Windows Credential Manager, `apple-native` → macOS
+    Keychain, `sync-secret-service` → Linux Secret Service). Verified
+    end-to-end: the key now survives separate process runs, and the app opens
+    cleanly across restarts with data intact.
+  - **Recovery:** if the key is genuinely missing (e.g. upgrading from the
+    broken build), the app no longer refuses to start - it quarantines the
+    now-undecryptable snapshot and starts fresh, while a *transient* key-store
+    error still fails safe so a retry can recover. (Data created by the broken
+    build is unrecoverable, since its key was never persisted.)
+
 ## [0.4.1] - 2026-06-14 - Critical tracking fix + hardening
 
 A deep code review caught a critical regression and a batch of robustness bugs.

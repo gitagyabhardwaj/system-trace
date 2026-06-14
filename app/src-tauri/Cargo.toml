@@ -1,6 +1,6 @@
 [package]
 name = "system-trace"
-version = "0.4.1"
+version = "0.4.2"
 description = "Privacy-first, local-first, cross-platform screen-time tracker."
 authors = ["ANAND SUNDARAMOORTHY SA"]
 license = "MIT"
@@ -43,7 +43,16 @@ rusqlite = { version = "0.31", features = ["bundled", "backup", "serialize"] }
 # Manager / macOS Keychain / Linux Secret Service). `rand` generates the key and
 # per-write nonces.
 chacha20poly1305 = "0.10"
-keyring = "3"
+# IMPORTANT: keyring 3.x ships NO credential backend by default (it falls back
+# to an in-memory mock store that is lost on restart). The platform features
+# below select the real, persistent OS stores: Windows Credential Manager,
+# macOS Keychain, and the Linux Secret Service (pure-Rust crypto, no OpenSSL).
+keyring = { version = "3", features = [
+    "windows-native",
+    "apple-native",
+    "sync-secret-service",
+    "crypto-rust",
+] }
 rand = "0.8"
 
 # Async runtime for the collector background task and scheduled services.
