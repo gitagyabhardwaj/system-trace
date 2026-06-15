@@ -106,7 +106,8 @@ fn write_hosts(content: String) -> Result<(), String> {
     {
         use std::process::Command;
         let temp_path = "/tmp/system-trace-hosts";
-        fs::write(temp_path, content).map_err(|e| format!("failed to write temporary file: {e}"))?;
+        fs::write(temp_path, content)
+            .map_err(|e| format!("failed to write temporary file: {e}"))?;
 
         let status = Command::new("pkexec")
             .args(["cp", temp_path, path.to_str().unwrap()])
